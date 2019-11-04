@@ -6,6 +6,8 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using JetBrains.Annotations;
+using Ribbanya.Utilities;
+using Ribbanya.Utilities.Reflection;
 using Instructions = System.Collections.Generic.IEnumerable<(System.Reflection.Emit.OpCode opCode, object parameter)>;
 
 namespace Ribbanya.Reflection {
@@ -128,7 +130,7 @@ namespace Ribbanya.Reflection {
         var targetParameter = targetParameters[index + startOffset];
         var suppliedParameter = index < suppliedParameters.Count
           ? suppliedParameters[index]
-          : targetParameter.GetDefaultParameterValue();
+          : targetParameter.GetDefaultValue();
         var instructions = GetParameterInstructions(suppliedParameter, targetParameter, localTypes);
 
         foreach (var instruction in instructions) yield return instruction;
@@ -151,7 +153,7 @@ namespace Ribbanya.Reflection {
         let key = parameter.Name
         let jParameter = suppliedParameters.ContainsKey(key)
           ? suppliedParameters[key]
-          : parameter.GetDefaultParameterValue()
+          : parameter.GetDefaultValue()
         select GetParameterInstructions(jParameter, parameter, localTypes)
         into instructions
         from instruction in instructions
