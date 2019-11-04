@@ -1,5 +1,5 @@
-namespace Ribbanya.Tests {
+namespace Ribbanya.Utilities.Tests {
   public sealed class ReflectionTests {
-    
+    // TODO
   }
 }
