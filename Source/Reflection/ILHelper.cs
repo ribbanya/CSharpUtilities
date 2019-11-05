@@ -1,12 +1,14 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
 using JetBrains.Annotations;
 
 namespace Ribbanya.Utilities.Reflection {
   [PublicAPI]
-  public static class ILHelper {
-    public static (OpCode opCode, byte index) ResolveShortMacroInstruction(OpCode opCode, byte index) {
+  internal static class ILHelper {
+    internal static (OpCode opCode, byte index) ResolveShortMacroInstruction(OpCode opCode, byte index) {
       if (opCode == OpCodes.Ldarg_S) {
         switch (index) {
           case 0: return (OpCodes.Ldarg_0, 0);
@@ -33,7 +35,7 @@ namespace Ribbanya.Utilities.Reflection {
       throw new InvalidOperationException($"Unexpected macro OpCode {opCode.Name}.");
     }
 
-    public static int GetInstructionLength(this OpCode opCode) {
+    internal static int GetInstructionLength(this OpCode opCode) {
       int operandSize;
       switch (opCode.OperandType) {
         case OperandType.InlineNone:
@@ -67,7 +69,7 @@ namespace Ribbanya.Utilities.Reflection {
       return opCode.Size + operandSize;
     }
 
-    public static void EmitInstruction(this ILGenerator generator, (OpCode, object) instruction) {
+    internal static void EmitInstruction(this ILGenerator generator, (OpCode, object) instruction) {
       var (opCode, parameter) = instruction;
       switch (opCode.OperandType) {
         case OperandType.InlineNone:
@@ -111,6 +113,57 @@ namespace Ribbanya.Utilities.Reflection {
         default:
           throw new InvalidOperationException("Unexpected operand type.");
       }
+    }
+
+    internal static IEnumerable<(OpCode opCode, object parameter)> GetParameterInstructions(
+      object parameter, Type type, Queue<Type> localTypes
+    ) {
+      if (parameter == null) {
+        localTypes.Enqueue(type);
+        var localIndex = (byte) (localTypes.Count - 1);
+        yield return (OpCodes.Ldloca_S, localIndex);
+        yield return (OpCodes.Initobj, type);
+        yield return (OpCodes.Ldloc_S, localIndex);
+        yield break;
+      }
+
+
+      var nullableType = Nullable.GetUnderlyingType(type);
+
+      if (nullableType != null) {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+#if DEBUG
+        var nullableHasValue = type.GetProperty("HasValue", flags);
+        Debug.Assert(nullableHasValue != null);
+        Debug.Assert((bool) nullableHasValue.GetValue(parameter));
+#endif
+        var nullableValue = type.GetProperty("Value", flags);
+        parameter = nullableValue?.GetValue(parameter) ?? throw new MethodAccessException();
+
+        UtilityHelper.Swap(ref type, ref nullableType);
+      }
+
+
+      Debug.Assert(parameter != null);
+
+      if (type == typeof(bool)) yield return ((bool) parameter ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0, parameter);
+
+      else if (type == typeof(byte)) yield return (OpCodes.Ldc_I4_S, parameter);
+
+      else if (type == typeof(short) || type == typeof(int)) yield return (OpCodes.Ldc_I4, parameter);
+
+      else if (type == typeof(long)) yield return (OpCodes.Ldc_I8, parameter);
+
+      else if (type == typeof(float)) yield return (OpCodes.Ldc_R4, parameter);
+
+      else if (type == typeof(double)) yield return (OpCodes.Ldc_R8, parameter);
+
+      else if (type == typeof(string)) yield return (OpCodes.Ldstr, parameter);
+
+      else throw new InvalidCastException($"Cannot convert {parameter} to {type}.");
+
+      if (nullableType == null) yield break;
+      yield return (OpCodes.Newobj, nullableType.GetConstructor(new[] {type}));
     }
   }
 }
