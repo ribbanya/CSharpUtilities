@@ -106,6 +106,14 @@ namespace Ribbanya.Utilities.Reflection {
     }
 
     public static Delegate CreateOverload(
+      this MethodInfo @this, string overloadName, IReadOnlyList<object> defaultParameters
+    ) {
+      //TODO: Validate lengths
+      var startOffset = @this.GetParameters().Length - defaultParameters.Count;
+      return CreateOverload(@this, overloadName, defaultParameters, startOffset);
+    }
+
+    public static Delegate CreateOverload(
       this MethodInfo @this, string overloadName, IReadOnlyList<object> defaultParameters, int startOffset
     ) {
       //TODO: Validate parameters
@@ -117,54 +125,6 @@ namespace Ribbanya.Utilities.Reflection {
       var delegateType = Expression.GetDelegateType(unspecifiedParameterTypes);
 
       return overload.CreateDelegate(delegateType);
-    }
-
-    private static void PrepareParameters(
-      MethodInfo @base, IReadOnlyList<object> defaultParameters, int startOffset,
-      out IReadOnlyList<object> paddedParameters, out Type[] unspecifiedParameterTypes
-    ) {
-      ArrangeParameters(
-        @base.GetParameters().ToDictionary(),
-        defaultParameters.ToDictionary(index => index + startOffset),
-        out paddedParameters, out unspecifiedParameterTypes
-      );
-    }
-
-    private static void ArrangeParameters<TKey>(
-      IReadOnlyDictionary<TKey, ParameterInfo> baseParameters, IReadOnlyDictionary<TKey, object> defaultParameters,
-      out IReadOnlyList<object> paddedParameters, out Type[] unspecifiedParameterTypes
-    ) {
-      var outPaddedParameters = new List<object>(baseParameters.Count);
-      var outUnspecifiedParameterTypes = new List<Type>(baseParameters.Count - defaultParameters.Count);
-
-      foreach (var kvp in baseParameters) {
-        var baseParameter = kvp.Value;
-        var index = baseParameter.Position;
-        var baseParameterName = kvp.Key;
-
-        if (defaultParameters.ContainsKey(baseParameterName)) {
-          var defaultParameter = defaultParameters[baseParameterName];
-          var baseParameterType = baseParameter.ParameterType;
-
-          outPaddedParameters[index] =
-            ReferenceEquals(defaultParameter, ParameterDefault)
-              ? baseParameter.GetDefaultValue()
-              : ReferenceEquals(defaultParameter, TypeDefault)
-                ? baseParameterType.GetDefaultValue()
-                : ReferenceEquals(defaultParameter, ParameterOrTypeDefault)
-                  ? baseParameter.IsActuallyOptional()
-                    ? baseParameter.DefaultValue
-                    : baseParameter.ParameterType.GetDefaultValue()
-                  : Convert.ChangeType(defaultParameter, baseParameterType);
-        }
-        else {
-          outPaddedParameters[index] = Unspecified;
-          outUnspecifiedParameterTypes.Add(baseParameter.ParameterType);
-        }
-      }
-
-      paddedParameters = outPaddedParameters;
-      unspecifiedParameterTypes = outUnspecifiedParameterTypes.ToArray();
     }
 
     private static DynamicMethod CreateOverloadInternal(
@@ -213,6 +173,54 @@ namespace Ribbanya.Utilities.Reflection {
       foreach (var instruction in overloadBody) generator.EmitInstruction(instruction);
 
       return @return;
+    }
+
+    private static void PrepareParameters(
+      MethodInfo @base, IReadOnlyList<object> defaultParameters, int startOffset,
+      out IReadOnlyList<object> paddedParameters, out Type[] unspecifiedParameterTypes
+    ) {
+      ArrangeParameters(
+        @base.GetParameters().ToDictionary(),
+        defaultParameters.ToDictionary(index => index + startOffset),
+        out paddedParameters, out unspecifiedParameterTypes
+      );
+    }
+
+    private static void ArrangeParameters<TKey>(
+      IReadOnlyDictionary<TKey, ParameterInfo> baseParameters, IReadOnlyDictionary<TKey, object> defaultParameters,
+      out IReadOnlyList<object> paddedParameters, out Type[] unspecifiedParameterTypes
+    ) {
+      var outPaddedParameters = new List<object>(baseParameters.Count);
+      var outUnspecifiedParameterTypes = new List<Type>(baseParameters.Count - defaultParameters.Count);
+
+      foreach (var kvp in baseParameters) {
+        var baseParameter = kvp.Value;
+        var index = baseParameter.Position;
+        var baseParameterName = kvp.Key;
+
+        if (defaultParameters.ContainsKey(baseParameterName)) {
+          var defaultParameter = defaultParameters[baseParameterName];
+          var baseParameterType = baseParameter.ParameterType;
+
+          outPaddedParameters[index] =
+            ReferenceEquals(defaultParameter, ParameterDefault)
+              ? baseParameter.GetDefaultValue()
+              : ReferenceEquals(defaultParameter, TypeDefault)
+                ? baseParameterType.GetDefaultValue()
+                : ReferenceEquals(defaultParameter, ParameterOrTypeDefault)
+                  ? baseParameter.IsActuallyOptional()
+                    ? baseParameter.DefaultValue
+                    : baseParameter.ParameterType.GetDefaultValue()
+                  : Convert.ChangeType(defaultParameter, baseParameterType);
+        }
+        else {
+          outPaddedParameters[index] = Unspecified;
+          outUnspecifiedParameterTypes.Add(baseParameter.ParameterType);
+        }
+      }
+
+      paddedParameters = outPaddedParameters;
+      unspecifiedParameterTypes = outUnspecifiedParameterTypes.ToArray();
     }
 
     private static IEnumerable<(OpCode opCode, object parameter)> GetParameterInstructions(
