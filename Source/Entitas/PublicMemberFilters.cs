@@ -1,6 +1,6 @@
 using System;
 
-namespace TeamSalvato.Entitas {
+namespace Ribbanya.Utilities.Entitas {
   [Flags]
   public enum PublicMemberFilters {
     Any = ~MustRead & ~MustWrite,

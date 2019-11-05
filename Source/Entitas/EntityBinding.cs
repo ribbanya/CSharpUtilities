@@ -3,7 +3,7 @@ using System.Linq;
 using Entitas;
 using JetBrains.Annotations;
 
-namespace TeamSalvato.Entitas {
+namespace Ribbanya.Utilities.Entitas {
   //TODO: Code generation instead of reflection
   [PublicAPI]
   public sealed class EntityBinding<TEntity> where TEntity : class, IEntity {

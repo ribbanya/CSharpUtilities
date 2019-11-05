@@ -8,7 +8,7 @@ using Entitas.CodeGeneration.Attributes;
 
 // ReSharper disable MemberCanBePrivate.Global
 
-namespace TeamSalvato.Entitas {
+namespace Ribbanya.Utilities.Entitas {
   public static class EntitasHelper {
     public static void BindComponent(this IEntity @this, int index, object value, bool replace = false) {
       var valueType = value.GetType();
