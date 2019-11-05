@@ -6,6 +6,8 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using JetBrains.Annotations;
+using Ribbanya.Utilities;
+using Ribbanya.Utilities.Reflection;
 using Instructions = System.Collections.Generic.IEnumerable<(System.Reflection.Emit.OpCode opCode, object parameter)>;
 
 namespace Ribbanya.Utilities.Reflection {

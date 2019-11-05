@@ -83,10 +83,10 @@ namespace Ribbanya.Utilities.Reflection {
       this MethodInfo @this, string overloadName, IReadOnlyList<object> defaultParameters, int startOffset
     ) where TDelegate : Delegate {
       //TODO: Validate unspecifiedParameterTypes against Invoke
-      PrepareParameters(@this, defaultParameters, startOffset,
-        out var paddedParameters, out _);
+      ArrangeParameters(@this, defaultParameters, startOffset,
+        out var paddedParameters, out var unspecifiedParameterTypes);
 
-      var overload = CreateOverloadInternal(@this, overloadName, paddedParameters);
+      var overload = CreateOverloadInternal(@this, overloadName, paddedParameters, unspecifiedParameterTypes);
 
       return (TDelegate) overload.CreateDelegate(typeof(TDelegate));
     }
@@ -97,10 +97,10 @@ namespace Ribbanya.Utilities.Reflection {
     ) {
       //TODO: Validate parameters
 
-      PrepareParameters(@this, defaultParameters, startOffset,
-        out var paddedParameters, out _);
+      ArrangeParameters(@this, defaultParameters, startOffset,
+        out var paddedParameters, out var unspecifiedParameterTypes);
 
-      var overload = CreateOverloadInternal(@this, overloadName, paddedParameters);
+      var overload = CreateOverloadInternal(@this, overloadName, paddedParameters, unspecifiedParameterTypes);
 
       return overload.CreateDelegate(delegateType);
     }
@@ -118,36 +118,40 @@ namespace Ribbanya.Utilities.Reflection {
     ) {
       //TODO: Validate parameters
 
-      PrepareParameters(@this, defaultParameters, startOffset,
+      ArrangeParameters(@this, defaultParameters, startOffset,
         out var paddedParameters, out var unspecifiedParameterTypes);
 
-      var overload = CreateOverloadInternal(@this, overloadName, paddedParameters);
-      var delegateType = Expression.GetDelegateType(unspecifiedParameterTypes);
+      var delegateParameterTypes = new Type[unspecifiedParameterTypes.Length + 1];
+      Array.Copy(unspecifiedParameterTypes, delegateParameterTypes,
+        unspecifiedParameterTypes.Length);
+      delegateParameterTypes[unspecifiedParameterTypes.Length] = @this.ReturnType;
+      var delegateType = Expression.GetDelegateType(delegateParameterTypes);
+
+      var overload = CreateOverloadInternal(@this, overloadName, paddedParameters, unspecifiedParameterTypes);
 
       return overload.CreateDelegate(delegateType);
     }
 
     private static DynamicMethod CreateOverloadInternal(
-      MethodInfo @base, string overloadName, IReadOnlyList<object> defaultParameters
+      MethodInfo @base, string overloadName, IReadOnlyList<object> defaultParameters, Type[] parameterTypes
     ) {
       //TODO: Shouldn't throw an exception based on user input
 
-      //TODO: Support return types other than void
+      //TODO: Support any return type
 
-      var parameterTypes = @base.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
       var @return = new DynamicMethod(overloadName, @base.ReturnType, parameterTypes, @base.Module);
 
       var localTypes = new Queue<Type>();
       var overloadBody = new List<(OpCode opCode, object parameter)>();
 
       var baseParameters = @base.GetParameters();
-      var argS = (byte) 1;
+      var argS = (byte) 0;
       for (var index = (byte) 0; index < defaultParameters.Count; index++) {
         var overloadParameter = defaultParameters[index];
         var baseParameter = baseParameters[index];
 
         if (ReferenceEquals(overloadParameter, Unspecified)) {
-          @return.DefineParameter(argS, ParameterAttributes.None, baseParameter.Name);
+          @return.DefineParameter(argS + 1, ParameterAttributes.None, baseParameter.Name);
           var macroInstruction = ILHelper.ResolveShortMacroInstruction(OpCodes.Ldarg_S, argS);
           overloadBody.Add(macroInstruction);
           argS += 1;
@@ -157,7 +161,7 @@ namespace Ribbanya.Utilities.Reflection {
         var baseParameterType = baseParameter.ParameterType;
 
 
-        var parameterInstructions = GetParameterInstructions(overloadParameter, baseParameterType, localTypes);
+        var parameterInstructions = ILHelper.GetParameterInstructions(overloadParameter, baseParameterType, localTypes);
 
         overloadBody.AddRange(parameterInstructions);
       }
@@ -175,7 +179,7 @@ namespace Ribbanya.Utilities.Reflection {
       return @return;
     }
 
-    private static void PrepareParameters(
+    private static void ArrangeParameters(
       MethodInfo @base, IReadOnlyList<object> defaultParameters, int startOffset,
       out IReadOnlyList<object> paddedParameters, out Type[] unspecifiedParameterTypes
     ) {
@@ -190,19 +194,19 @@ namespace Ribbanya.Utilities.Reflection {
       IReadOnlyDictionary<TKey, ParameterInfo> baseParameters, IReadOnlyDictionary<TKey, object> defaultParameters,
       out IReadOnlyList<object> paddedParameters, out Type[] unspecifiedParameterTypes
     ) {
-      var outPaddedParameters = new List<object>(baseParameters.Count);
+      var outPaddedParameters = new object[baseParameters.Count];
       var outUnspecifiedParameterTypes = new List<Type>(baseParameters.Count - defaultParameters.Count);
 
       foreach (var kvp in baseParameters) {
         var baseParameter = kvp.Value;
-        var index = baseParameter.Position;
-        var baseParameterName = kvp.Key;
+        var position = baseParameter.Position;
+        var baseParameterKey = kvp.Key;
 
-        if (defaultParameters.ContainsKey(baseParameterName)) {
-          var defaultParameter = defaultParameters[baseParameterName];
+        if (defaultParameters.ContainsKey(baseParameterKey)) {
+          var defaultParameter = defaultParameters[baseParameterKey];
           var baseParameterType = baseParameter.ParameterType;
 
-          outPaddedParameters[index] =
+          outPaddedParameters[position] =
             ReferenceEquals(defaultParameter, ParameterDefault)
               ? baseParameter.GetDefaultValue()
               : ReferenceEquals(defaultParameter, TypeDefault)
@@ -214,64 +218,13 @@ namespace Ribbanya.Utilities.Reflection {
                   : Convert.ChangeType(defaultParameter, baseParameterType);
         }
         else {
-          outPaddedParameters[index] = Unspecified;
+          outPaddedParameters[position] = Unspecified;
           outUnspecifiedParameterTypes.Add(baseParameter.ParameterType);
         }
       }
 
       paddedParameters = outPaddedParameters;
       unspecifiedParameterTypes = outUnspecifiedParameterTypes.ToArray();
-    }
-
-    private static IEnumerable<(OpCode opCode, object parameter)> GetParameterInstructions(
-      object parameter, Type type, Queue<Type> localTypes
-    ) {
-      if (parameter == null) {
-        localTypes.Enqueue(type);
-        var localIndex = (byte) (localTypes.Count - 1);
-        yield return (OpCodes.Ldloca_S, localIndex);
-        yield return (OpCodes.Initobj, type);
-        yield return (OpCodes.Ldloc_S, localIndex);
-        yield break;
-      }
-
-
-      var nullableType = Nullable.GetUnderlyingType(type);
-
-      if (nullableType != null) {
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
-#if DEBUG
-        var nullableHasValue = type.GetProperty("HasValue", flags);
-        Debug.Assert(nullableHasValue != null);
-        Debug.Assert((bool) nullableHasValue.GetValue(parameter));
-#endif
-        var nullableValue = type.GetProperty("Value", flags);
-        parameter = nullableValue?.GetValue(parameter) ?? throw new MethodAccessException();
-
-        UtilityHelper.Swap(ref type, ref nullableType);
-      }
-
-
-      Debug.Assert(parameter != null);
-
-      if (type == typeof(bool)) yield return ((bool) parameter ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0, parameter);
-
-      else if (type == typeof(byte)) yield return (OpCodes.Ldc_I4_S, parameter);
-
-      else if (type == typeof(short) || type == typeof(int)) yield return (OpCodes.Ldc_I4, parameter);
-
-      else if (type == typeof(long)) yield return (OpCodes.Ldc_I8, parameter);
-
-      else if (type == typeof(float)) yield return (OpCodes.Ldc_R4, parameter);
-
-      else if (type == typeof(double)) yield return (OpCodes.Ldc_R8, parameter);
-
-      else if (type == typeof(string)) yield return (OpCodes.Ldstr, parameter);
-
-      else throw new InvalidCastException($"Cannot convert {parameter} to {type}.");
-
-      if (nullableType == null) yield break;
-      yield return (OpCodes.Newobj, nullableType.GetConstructor(new[] {type}));
     }
 
 //
