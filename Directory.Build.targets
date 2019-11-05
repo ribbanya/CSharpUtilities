@@ -1,0 +1,5 @@
+<Project ToolsVersion="Current">
+  <PropertyGroup>
+    <RootNamespace>$(AssemblyName)</RootNamespace>
+  </PropertyGroup>
+</Project>
